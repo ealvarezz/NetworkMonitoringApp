@@ -27,16 +27,15 @@ int main(int argc, char** argv){
 		    exit(EXIT_FAILURE);
 	  }
     }
-    
-    //printf("BPF: %s\nDevice: %s\n\n", token, dev);
-    if(reading_file)  process_pcapfile(pcap_file);
-    else process_device(dev);
+   
+    if(reading_file) 	process_pcap(pcap_file, reading_file);
+    else 			process_pcap(dev, reading_file);
     
     return 0;
 
 }
 
-void process_device(char *dev){
+void process_pcap(char *dev, bool reading_file){
    
     pcap_t *handle;			/* Session handle */
     char errbuf[PCAP_ERRBUF_SIZE];	/* Error string */
@@ -44,31 +43,43 @@ void process_device(char *dev){
     bpf_u_int32 mask;			/* Netmask */
     bpf_u_int32 net;			/* My IP */
 
-
-    if(dev == NULL) {
-	  /* If no device is given to us then this will find default  */
-	  dev = pcap_lookupdev(errbuf);
-	  if (dev == NULL) {
+    if(reading_file){
+	  
+	  handle = pcap_open_offline(dev, errbuf);
+	  if (handle == NULL) {
 		
-		fprintf(stderr, "Couldn't find default device: %s\n", errbuf);
+		fprintf(stderr, "Couldn't open file %s: %s\n", dev, errbuf);
 		exit(EXIT_FAILURE);
 	  }
 	  
     }
-
-    /* Lookup properties for the device */
-    if (pcap_lookupnet(dev, &net, &mask, errbuf) == -1) {
-	  fprintf(stderr, "Couldn't get netmask for device %s: %s\n", dev, errbuf);
-	  net = 0;
-	  mask = 0;
-    }
-
-    /* Open the session in promiscuous mode */
-    handle = pcap_open_live(dev, BUFSIZ, 1, 1000, errbuf);
-    if (handle == NULL) {
+    else{
 	  
-	  fprintf(stderr, "Couldn't open device %s: %s\n", dev, errbuf);
-	  exit(EXIT_FAILURE);
+	  if(dev == NULL) {
+		/* If no device is given to us then this will find default  */
+		dev = pcap_lookupdev(errbuf);
+		if (dev == NULL) {
+		    
+		    fprintf(stderr, "Couldn't find default device: %s\n", errbuf);
+		    exit(EXIT_FAILURE);
+		}
+		
+	  }
+
+	  /* Lookup properties for the device */
+	  if (pcap_lookupnet(dev, &net, &mask, errbuf) == -1) {
+		fprintf(stderr, "Couldn't get netmask for device %s: %s\n", dev, errbuf);
+		net = 0;
+		mask = 0;
+	  }
+
+	  /* Open the session in promiscuous mode */
+	  handle = pcap_open_live(dev, BUFSIZ, 1, 1000, errbuf);
+	  if (handle == NULL) {
+		
+		fprintf(stderr, "Couldn't open device %s: %s\n", dev, errbuf);
+		exit(EXIT_FAILURE);
+	  }
     }
 
     /* This is to make sure this is in a ethernet device  */
@@ -98,11 +109,6 @@ void process_device(char *dev){
     
 }
 
-void process_pcapfile(char *pcap_file){
-    
-
-    
-}
 
  void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet){
     

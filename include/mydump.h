@@ -67,10 +67,9 @@ const char *usage =
 
 
 
-void process_device(char*);
 
 
-void process_pcapfile(char*);
+void process_pcap(char*, bool);
 
 
 void got_packet(u_char*, const struct pcap_pkthdr*, const u_char*);
