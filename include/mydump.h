@@ -31,6 +31,22 @@ struct sniff_ethernet {
     u_short ether_type; /* IP? ARP? RARP? etc */
 };
 
+/* Processed package */
+struct sniffed_packet {
+    
+    struct timeval timestamp;		/* Time the packet got sniffed */
+    const u_char *dest_mac;		/* Destination MAC address */
+    const u_char *src_mac;		/* Source MAC address */
+    u_short ether_type;			/* EtherType of packet */
+    bpf_u_int32 len;			/* Length of packet */
+    u_int dest_ip;			/* Destination IP address */
+    u_int src_ip;				/* Source IP address */
+    u_int src_port;			/* Source port number */
+    u_int dest_port;			/* Destination port number */
+    u_char *payload;			/* Package payload */
+    char protocol[6];			/* Transport protocol */
+    int payload_size;			/* Size of the payload */
+};
 
 char *expression; /* The expression for BPF filtering */
 
@@ -63,19 +79,24 @@ void got_packet(u_char*, const struct pcap_pkthdr*, const u_char*);
 void print_ip(u_int);
 
 
-void print_time(const struct pcap_pkthdr*);
+void print_time(struct timeval);
 
 
-bool process_tcp(const struct iphdr*, u_int, const u_char*);
+void process_tcp(const struct iphdr*, u_int, const u_char*, struct sniffed_packet*);
 
 
-bool process_udp(const struct iphdr*, u_int, const u_char*);
+void process_udp(const struct iphdr*, u_int, const u_char*, struct sniffed_packet*);
 
 
-bool process_icmp(const struct iphdr*, u_int, const u_char*);
+void process_icmp(const struct iphdr*, u_int, const u_char*, struct sniffed_packet*);
 
 
-bool process_other(const struct iphdr*, u_int, const u_char*);
+void process_other(const struct iphdr*, u_int, const u_char*, struct sniffed_packet*);
 
+
+void print_payload(const u_char*, int len);
+
+
+void print_hex_ascii_line(const u_char*, int, int);
 
 #endif
