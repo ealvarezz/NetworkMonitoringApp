@@ -28,6 +28,7 @@ int main(int argc, char** argv){
 	  }
     }
     
+    //printf("BPF: %s\nDevice: %s\n\n", token, dev);
     if(reading_file)  process_pcapfile(pcap_file);
     else process_device(dev);
     
@@ -77,7 +78,7 @@ void process_device(char *dev){
     }
 
     /* Compile and apply the filter */
-    if (pcap_compile(handle, &fp, "", 0, net) == -1) {
+    if (pcap_compile(handle, &fp, token, 0, net) == -1) {
 	  fprintf(stderr, "Couldn't parse filter %s: %s\n", expression, pcap_geterr(handle));
 	  exit(EXIT_FAILURE);
     }
@@ -171,6 +172,7 @@ void process_tcp(const struct iphdr *ip, u_int len, const u_char *packet, struct
     tcp_size = tcp->doff * 4;
 
     if (tcp_size < 20) {
+	  print_ethernet(print_packet);
 	  printf("* Invalid TCP header length: %u bytes\n\n", tcp_size);
         return;
     }
@@ -184,15 +186,45 @@ void process_tcp(const struct iphdr *ip, u_int len, const u_char *packet, struct
     payload = (u_char *) (packet + SIZE_ETHERNET + len + tcp_size);
     print_packet->payload = payload;
     print_packet->payload_size = ntohs(ip->tot_len) - (tcp_size + (ip->ihl * 4));
+    memcpy(print_packet->protocol, "TCP\0", 4);
 
-    print_processed_packet(print_packet);
+    print_ethernet(print_packet);
+    print_datagram(print_packet, true);
 
-    printf("Protocol: TCP\n\n");
 }
 
 void  process_udp(const struct iphdr *ip, u_int len, const u_char *packet, struct sniffed_packet *print_packet){
 
-    printf("Protocol: UDP\n\n");
+    const struct udphdr *udp;       /* The TCP header */
+    const char *payload;            /* Packet payload */
+    int udp_size;	/* TPC size */
+   
+    /* Getting tcp struct by adding ethernet size and ip size */
+    udp = (struct udphdr*)(packet + SIZE_ETHERNET + len);
+    
+    /* Getting the UDP length */
+    udp_size = udp->len;
+    
+    /* UDP length must be at least 8 bytes */
+    if (udp_size < 8) {
+	  print_ethernet(print_packet);
+	  printf("* Invalid UDP header length: %u bytes\n\n", udp_size);
+        return;
+    }
+    
+    /* We get source and destination port numbers */
+    print_packet->dest_port = ntohs(udp->dest);
+    print_packet->src_port = ntohs(udp->source);
+    
+    
+    /* Now we get the payload */
+    payload = (u_char *) (packet + SIZE_ETHERNET + len + sizeof(struct udphdr)) - 28;
+    print_packet->payload = payload;
+    print_packet->payload_size = ntohs(ip->tot_len) - ((sizeof(struct udphdr)+ (ip->ihl * 4))) + 28;
+    memcpy(print_packet->protocol, "UDP\0", 4);
+
+    print_ethernet(print_packet);
+    print_datagram(print_packet, true);
 }
 
 void process_icmp(const struct iphdr *ip, u_int len, const u_char *packet, struct sniffed_packet *print_packet){
@@ -211,7 +243,7 @@ void print_ip(u_int ip){
     bytes[1] = (ip >> 8) & 0xFF;
     bytes[2] = (ip >> 16) & 0xFF;
     bytes[3] = (ip >> 24) & 0xFF;
-    printf("%d.%d.%d.%d\n", bytes[0], bytes[1], bytes[2], bytes[3]);
+    printf("%d.%d.%d.%d", bytes[0], bytes[1], bytes[2], bytes[3]);
 }
 
 void print_time(struct timeval ts){
@@ -224,35 +256,41 @@ void print_time(struct timeval ts){
     my_tm = localtime(&th_time);
     strftime(tmbuf, sizeof tmbuf, "%Y-%m-%d %H:%M:%S", my_tm);
     snprintf(buf, sizeof buf, "%s.%06ld", tmbuf, ts.tv_usec);
-    printf("%s\n", buf);
+    printf("%s", buf);
 }
 
-void print_processed_packet(struct sniffed_packet *print_packet){
+void print_datagram(struct sniffed_packet *print_packet, bool ports){
     
-    int payload_size;
+    if(ports){
+	  print_ip(print_packet->src_ip);
+	  printf(":%d -> ", print_packet->src_port);
+	  print_ip(print_packet->dest_ip);
+	  printf(":%d", print_packet->dest_port);
+    }
+    else{ 
+	  print_ip(print_packet->src_ip);
+	  printf(" -> ");
+	  print_ip(print_packet->dest_ip);
+    }
+    
+    printf(" %s\n", print_packet->protocol);
+    print_payload(print_packet->payload, print_packet->payload_size);
+    printf("\n");
+}
+
+void print_ethernet(struct sniffed_packet *print_packet){
+
     const u_char *smac, *dmac;
     smac = print_packet->src_mac;
     dmac = print_packet->dest_mac;
-
-    printf("Packet Length: %d\n", print_packet->len);
-    printf("Destination MAC: %02X:%02X:%02X:%02X:%02X:%02X\nSource Mac: %02X:%02X:%02X:%02X:%02X:%02X\n", dmac[0], dmac[1],dmac[2],dmac[3],dmac[4],dmac[5], smac[0], smac[1],smac[2],smac[3],smac[4],smac[5]);
-
-    printf("Source IP: ");
-    print_ip(print_packet->src_ip);
-    printf("Destination IP: ");
-    print_ip(print_packet->dest_ip);
     
-    printf("EtherType: 0x%X%02X\n", print_packet->ether_type & 0xFF, print_packet->ether_type >> 8 & 0xFF);
-
-    printf("Time stamp: ");
     print_time(print_packet->timestamp);
-    
-    printf("Src port: %d\n", print_packet->src_port);
-    printf("Dst port: %d\n", print_packet->dest_port);
-   
-    printf("Payload Size: %d\n", print_packet->payload_size);
-}
 
+    printf(" %02X:%02X:%02X:%02X:%02X:%02X -> %02X:%02X:%02X:%02X:%02X:%02X", smac[0], smac[1],smac[2],smac[3],smac[4],smac[5], dmac[0], dmac[1],dmac[2],dmac[3],dmac[4],dmac[5]);
+
+    printf(" type: 0x%X%02X len %d\n", print_packet->ether_type & 0xFF, print_packet->ether_type >> 8 & 0xFF, print_packet->len);
+
+}
 
 void print_hex_ascii_line(const u_char *payload, int len, int offset){
 

@@ -43,7 +43,7 @@ struct sniffed_packet {
     u_int src_ip;				/* Source IP address */
     u_int src_port;			/* Source port number */
     u_int dest_port;			/* Destination port number */
-    u_char *payload;			/* Package payload */
+    const u_char *payload;			/* Package payload */
     char protocol[6];			/* Transport protocol */
     int payload_size;			/* Size of the payload */
 };
@@ -98,5 +98,12 @@ void print_payload(const u_char*, int len);
 
 
 void print_hex_ascii_line(const u_char*, int, int);
+
+
+void print_ethernet(struct sniffed_packet*);
+
+
+void print_datagram(struct sniffed_packet*, bool);
+
 
 #endif
