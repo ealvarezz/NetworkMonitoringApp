@@ -6,7 +6,7 @@ int main(int argc, char** argv){
     char *dev, *pcap_file;
     
     reading_file = false;
-    dev = NULL; pcap_file = NULL;
+    dev = NULL; pcap_file = NULL; 
 
     while ((opt = getopt(argc, argv, "i:r:s:")) != -1) {
 	  
@@ -27,7 +27,10 @@ int main(int argc, char** argv){
 		    exit(EXIT_FAILURE);
 	  }
     }
-   
+     
+    expression = get_expression(argv, argc);
+    //printf("%s\n", expression);
+    
     if(reading_file) 	process_pcap(pcap_file, reading_file);
     else 			process_pcap(dev, reading_file);
     
@@ -142,7 +145,11 @@ void process_pcap(char *dev, bool reading_file){
     /* We need to check we have a valid IP header */ 
     iphdr_len = ip->ihl * 4;
     if (iphdr_len < 20) {             
-	  printf("* Invalid IP header length: %u bytes\n\n", iphdr_len);
+	  
+	  if(expression == NULL){
+		print_ethernet(print_packet);
+		printf("* Invalid IP header length: %u bytes\n\n", iphdr_len);
+	  }
 	  return;
     }
     
@@ -178,8 +185,11 @@ void process_tcp(const struct iphdr *ip, u_int len, const u_char *packet, struct
     tcp_size = tcp->doff * 4;
 
     if (tcp_size < 20) {
-	  print_ethernet(print_packet);
-	  printf("* Invalid TCP header length: %u bytes\n\n", tcp_size);
+	  
+	  if(expression == NULL){
+		print_ethernet(print_packet);
+		printf("* Invalid TCP header length: %u bytes\n\n", tcp_size);
+	  }
         return;
     }
     
@@ -193,17 +203,18 @@ void process_tcp(const struct iphdr *ip, u_int len, const u_char *packet, struct
     print_packet->payload = payload;
     print_packet->payload_size = ntohs(ip->tot_len) - (tcp_size + (ip->ihl * 4));
     memcpy(print_packet->protocol, "TCP\0", 4);
-
-    print_ethernet(print_packet);
-    print_datagram(print_packet, true);
-
+    
+    if(expression == NULL || (strstr_printable(print_packet->payload, print_packet->payload_size) && print_packet->payload_size > 0)){
+	  print_ethernet(print_packet);
+	  print_datagram(print_packet, true);
+    }
 }
 
 void  process_udp(const struct iphdr *ip, u_int len, const u_char *packet, struct sniffed_packet *print_packet){
 
-    const struct udphdr *udp;       /* The TCP header */
+    const struct udphdr *udp;       /* The UDP header */
     const char *payload;            /* Packet payload */
-    int udp_size;	/* TPC size */
+    int udp_size;	/* UDP size */
    
     /* Getting tcp struct by adding ethernet size and ip size */
     udp = (struct udphdr*)(packet + SIZE_ETHERNET + len);
@@ -213,8 +224,11 @@ void  process_udp(const struct iphdr *ip, u_int len, const u_char *packet, struc
     
     /* UDP length must be at least 8 bytes */
     if (udp_size < 8) {
-	  print_ethernet(print_packet);
-	  printf("* Invalid UDP header length: %u bytes\n\n", udp_size);
+	  
+	  if(expression == NULL){
+		print_ethernet(print_packet);
+		printf("* Invalid UDP header length: %u bytes\n\n", udp_size);
+	  }
         return;
     }
     
@@ -229,18 +243,52 @@ void  process_udp(const struct iphdr *ip, u_int len, const u_char *packet, struc
     print_packet->payload_size = ntohs(ip->tot_len) - ((sizeof(struct udphdr)+ (ip->ihl * 4))) + 28;
     memcpy(print_packet->protocol, "UDP\0", 4);
 
-    print_ethernet(print_packet);
-    print_datagram(print_packet, true);
+    if(expression == NULL || (strstr_printable(print_packet->payload, print_packet->payload_size) && print_packet->payload_size > 0)){
+	  print_ethernet(print_packet);
+	  print_datagram(print_packet, true);
+    }
 }
 
 void process_icmp(const struct iphdr *ip, u_int len, const u_char *packet, struct sniffed_packet *print_packet){
 
-    printf("Protocol: ICMP\n\n");
+    const struct icmphdr *icmp;       /* The UDP header */
+    const char *payload;            /* Packet payload */
+    int icmp_size;
+
+    /* Getting tcp struct by adding ethernet size and ip size */
+    icmp = (struct icmphdr*)(packet + SIZE_ETHERNET + len);
+    
+    /* Getting the UDP length */
+    icmp_size = sizeof(struct icmphdr);
+    
+    /* UDP length must be at least 8 bytes */
+    if (icmp_size < 8) {
+	  if(expression == NULL){
+		
+		print_ethernet(print_packet);
+		printf("* Invalid ICMP header length: %u bytes\n\n", icmp_size);
+	  }
+        return;
+    } 
+    
+    /* Now we get the payload */
+    payload = (u_char *) (packet + SIZE_ETHERNET + len + icmp_size - 28);
+    print_packet->payload = payload;
+    print_packet->payload_size = ntohs(ip->tot_len) - ((icmp_size + (ip->ihl * 4))) + 28;
+    memcpy(print_packet->protocol, "ICMP\0", 5);
+
+    if(expression == NULL || (strstr_printable(print_packet->payload, print_packet->payload_size) && print_packet->payload_size > 0)){
+	  print_ethernet(print_packet);
+	  print_datagram(print_packet, false);
+    }
 }
 
 void  process_other(const struct iphdr *ip, u_int len, const u_char *packet, struct sniffed_packet *print_packet){
 
-    printf("Protocol: OTHER\n\n");
+    if(expression == NULL){
+	  print_ethernet(print_packet);
+	  printf("Protocol: OTHER\n\n");
+    }
 }
 
 void print_ip(u_int ip){
@@ -344,6 +392,29 @@ void print_hex_ascii_line(const u_char *payload, int len, int offset){
 return;
 }
 
+bool strstr_printable(const u_char* payload, int payload_size){
+    
+    char printable_buff[payload_size + 1];
+    const u_char *ch;
+    int x, i;
+
+    ch = payload;
+    x = 0;
+
+    for(i = 0; i < payload_size; i++) {
+	  if (isprint(*ch)){
+		printable_buff[x] = *ch;
+		x++;
+	  }
+	  ch++;
+    }
+
+    printable_buff[x] = '\0';
+
+    return strstr(printable_buff, expression) != NULL;
+
+}
+
 void print_payload(const u_char *payload, int len){
 
 	int len_rem = len;
@@ -382,5 +453,14 @@ void print_payload(const u_char *payload, int len){
 	}
 
 return;
+}
+
+
+char* get_expression(char** argv, int argc){
+    if(argc == 1) return NULL;
+    else if(argc == 2) return argv[argc - 1];
+    else if(strstr(argv[argc - 2], "-") == NULL) return argv[argc - 1];
+    else return NULL;
+
 }
 

@@ -105,4 +105,10 @@ void print_ethernet(struct sniffed_packet*);
 void print_datagram(struct sniffed_packet*, bool);
 
 
+char*  get_expression(char**, int);
+
+
+bool strstr_printable(const u_char*, int);
+
+
 #endif

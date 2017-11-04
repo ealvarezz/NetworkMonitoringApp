@@ -1,4 +1,4 @@
-CFLAGS = -c -Wall -Iinclude -pedantic -Wextra
+CFLAGS = -c  -Iinclude 
 
 all: clean dump
 
